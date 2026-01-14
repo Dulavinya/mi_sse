@@ -1,41 +1,30 @@
 package org.wso2.carbon.inbound.SSE;
 
-import org.apache.axiom.om.OMElement;
-import org.apache.axis2.builder.Builder;
-import org.apache.axis2.builder.BuilderUtil;
-import org.apache.axis2.builder.SOAPBuilder;
-import org.apache.axis2.transport.TransportUtils;
-import org.apache.commons.io.input.AutoCloseInputStream;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
-import org.apache.synapse.MessageContext;
-import org.apache.synapse.SynapseConstants;
 import org.apache.synapse.SynapseException;
 import org.apache.synapse.core.SynapseEnvironment;
-import org.apache.synapse.core.axis2.Axis2MessageContext;
 import org.apache.synapse.inbound.InboundProcessorParams;
-import org.apache.synapse.mediators.base.SequenceMediator;
 import org.wso2.carbon.inbound.endpoint.protocol.generic.GenericInboundListener;
 
-import javax.ws.rs.client.Client;
-import javax.ws.rs.client.ClientBuilder;
-import javax.ws.rs.client.Invocation;
-import javax.ws.rs.sse.InboundSseEvent;
-import javax.ws.rs.sse.SseEventSource;
-import java.io.ByteArrayInputStream;
+import java.io.BufferedReader;
 import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.io.InterruptedIOException;
+import java.net.URL;
+import java.net.URLConnection;
 import java.util.Map;
 import java.util.Properties;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * SSE Message Consumer - Direct implementation of GenericInboundListener
- * This is used directly in the inbound endpoint configuration
+ * SSE Message Consumer - Listener-based implementation of GenericInboundListener
  */
 public class SSEMessageConsumer extends GenericInboundListener {
 
     private static final Log log = LogFactory.getLog(SSEMessageConsumer.class);
+    private static final int MAX_STORED_EVENTS = 1000;
 
     private final String endpointUrl;
     private final String contentType;
@@ -44,17 +33,17 @@ public class SSEMessageConsumer extends GenericInboundListener {
     private final SynapseEnvironment synapseEnvironment;
     private final boolean sequential;
 
-    private Client client;
-    private SseEventSource eventSource;
     private final AtomicBoolean listening = new AtomicBoolean(false);
     private final AtomicBoolean paused = new AtomicBoolean(false);
+    
+    private URLConnection connection;
 
     /**
      * Constructor called by WSO2 framework
-     * @param params InboundProcessorParams containing all configuration
+     * GenericInboundListener expects InboundProcessorParams
      */
     public SSEMessageConsumer(InboundProcessorParams params) {
-        super(params);
+        super(params); 
         
         Properties properties = params.getProperties();
         this.synapseEnvironment = params.getSynapseEnvironment();
@@ -72,6 +61,8 @@ public class SSEMessageConsumer extends GenericInboundListener {
         
         log.info("Initialized SSE inbound endpoint: " + name + " -> " + endpointUrl);
     }
+
+
 
     /**
      * Initialize and start the SSE listener
@@ -128,7 +119,7 @@ public class SSEMessageConsumer extends GenericInboundListener {
     }
 
     /**
-     * Start listening to SSE stream
+     * Start listening to SSE stream using raw HTTP connection (no Jersey to avoid DI issues)
      */
     public void startListening() {
         if (listening.get()) {
@@ -136,25 +127,110 @@ public class SSEMessageConsumer extends GenericInboundListener {
             return;
         }
         
-        try {
-            client = ClientBuilder.newBuilder().build();
-            
-            Invocation.Builder invocationBuilder = client.target(endpointUrl).request();
-            
-            // Add custom headers if any
-            if (headers != null && !headers.isEmpty()) {
-                headers.forEach(invocationBuilder::header);
+        listening.set(true);
+        new Thread(() -> {
+            try {
+                if (log.isDebugEnabled()) {
+                    log.debug("Starting SSE listener thread for: " + name);
+                }
+                
+                URL url = new URL(endpointUrl);
+                connection = url.openConnection();
+                
+                // Set connection timeouts
+                connection.setConnectTimeout(10000);  // 10 seconds
+                connection.setReadTimeout(300000);    // 5 minutes
+                
+                // Add custom headers if any
+                if (headers != null && !headers.isEmpty()) {
+                    for (Map.Entry<String, String> header : headers.entrySet()) {
+                        connection.setRequestProperty(header.getKey(), header.getValue());
+                    }
+                }
+                
+                // Set Accept header for SSE
+                connection.setRequestProperty("Accept", contentType);
+                connection.setRequestProperty("Cache-Control", "no-cache");
+                connection.setRequestProperty("Connection", "keep-alive");
+                
+                // Connect and read stream
+                InputStream inputStream = connection.getInputStream();
+                log.info("Connected to SSE endpoint: " + name + " -> " + endpointUrl);
+                processSSEStream(inputStream);
+                
+            } catch (java.io.EOFException e) {
+                log.info("SSE stream ended for: " + name);
+                scheduleReconnect();
+            } catch (InterruptedIOException e) {
+                log.info("SSE listener interrupted for: " + name);
+            } catch (Exception e) {
+                log.error("Error in SSE listener for: " + name, e);
+                scheduleReconnect();
+            } finally {
+                listening.set(false);
+                closeConnection();
             }
+        }, "SSE-Listener-" + name).start();
+        
+        log.info("Started SSE listener thread for: " + name + " -> " + endpointUrl);
+    }
+    
+    /**
+     * Process the SSE stream line by line
+     */
+    private void processSSEStream(InputStream inputStream) throws Exception {
+        String line;
+        StringBuilder eventData = new StringBuilder();
+        String eventId = null;
+        
+        try (java.io.BufferedReader reader = new java.io.BufferedReader(
+                new java.io.InputStreamReader(inputStream, "UTF-8"))) {
             
-            eventSource = SseEventSource.target(client.target(endpointUrl)).build();
-            eventSource.register(this::onEvent, this::onError, this::onComplete);
-            eventSource.open();
-            
-            listening.set(true);
-            log.info("Started SSE listener for: " + name + " -> " + endpointUrl);
-        } catch (Exception e) {
-            log.error("Failed to start SSE listener for: " + name, e);
-            scheduleReconnect();
+            while ((line = reader.readLine()) != null && listening.get()) {
+                if (paused.get()) {
+                    Thread.sleep(100); // Brief pause if paused
+                    continue;
+                }
+                
+                line = line.trim();
+                
+                // Empty line marks end of event
+                if (line.isEmpty()) {
+                    if (eventData.length() > 0) {
+                        onEvent(eventId, eventData.toString());
+                        eventData.setLength(0);
+                        eventId = null;
+                    }
+                    continue;
+                }
+                
+                
+                if (line.startsWith(":")) {
+                    continue;
+                }
+                
+                // Parse field: value format
+                if (line.contains(":")) {
+                    String[] parts = line.split(":", 2);
+                    String field = parts[0].trim();
+                    String value = (parts.length > 1 ? parts[1].trim() : "");
+                    
+                    if ("id".equals(field)) {
+                        eventId = value;
+                    } else if ("data".equals(field)) {
+                        if (eventData.length() > 0) {
+                            eventData.append("\\n");
+                        }
+                        eventData.append(value);
+                    } else if ("event".equals(field)) {
+                        // Optional: event type
+                    }
+                }
+            }
+        } catch (java.io.EOFException e) {
+            log.info("SSE stream ended for: " + name);
+        } catch (InterruptedIOException e) {
+            log.info("SSE listener interrupted for: " + name);
         }
     }
 
@@ -163,30 +239,30 @@ public class SSEMessageConsumer extends GenericInboundListener {
      */
     public void stopListening() {
         listening.set(false);
-        
-        try {
-            if (eventSource != null && eventSource.isOpen()) {
-                eventSource.close();
-            }
-        } catch (Exception e) {
-            log.warn("Error closing SSE event source for: " + name, e);
-        }
-        
-        try {
-            if (client != null) {
-                client.close();
-            }
-        } catch (Exception e) {
-            log.warn("Error closing SSE client for: " + name, e);
-        }
-        
+        closeConnection();
         log.info("Stopped SSE listener for: " + name);
+    }
+    
+    /**
+     * Close the HTTP connection
+     */
+    private void closeConnection() {
+        if (connection != null) {
+            try {
+                if (connection instanceof java.net.HttpURLConnection) {
+                    ((java.net.HttpURLConnection) connection).disconnect();
+                }
+            } catch (Exception e) {
+                log.debug("Error closing HTTP connection: " + e.getMessage());
+            }
+        }
     }
 
     /**
      * Callback when SSE event is received
+     * Events are stored in global InboundEventStore for later access
      */
-    private void onEvent(InboundSseEvent inboundEvent) {
+    private void onEvent(String id, String data) {
         // Skip processing if paused
         if (paused.get()) {
             if (log.isDebugEnabled()) {
@@ -196,29 +272,15 @@ public class SSEMessageConsumer extends GenericInboundListener {
         }
         
         try {
-            String id = inboundEvent.getId();
-            String data = inboundEvent.readData();
-            String comment = inboundEvent.getComment();
+            log.info("Received SSE event [id=" + id + ", data=" + data + "] for: " + name);
+            
+            // Store event in global store
+            InboundEventStore.add(data);
             
             if (log.isDebugEnabled()) {
-                log.debug("Received SSE event [id=" + id + ", data=" + data + "] for: " + name);
+                log.debug("Event stored in global store. Total events: " + InboundEventStore.getSize());
             }
             
-            // Create message context
-            MessageContext msgCtx = createMessageContext();
-            
-            // Set SSE-specific properties
-            msgCtx.setProperty(SSEConstants.MESSAGE_ID, id);
-            msgCtx.setProperty(SSEConstants.MESSAGE_DATA, data);
-            msgCtx.setProperty(SSEConstants.MESSAGE_COMMENT, comment);
-            msgCtx.setProperty(SynapseConstants.IS_INBOUND, true);
-            msgCtx.setProperty(SynapseConstants.INBOUND_ENDPOINT_NAME, name);
-            
-            // Inject message into sequence
-            boolean consumed = injectMessage(data, contentType, msgCtx);
-            if (!consumed) {
-                log.error("Message processing failed for SSE event id=" + id);
-            }
         } catch (Exception e) {
             log.error("Error handling SSE event for: " + name, e);
         }
@@ -249,25 +311,10 @@ public class SSEMessageConsumer extends GenericInboundListener {
     }
 
     /**
-     * Safely close event source and client
+     * Safely close resources (called when error or completion occurs)
      */
     private void safeCloseEventSource() {
-        try {
-            if (eventSource != null && eventSource.isOpen()) {
-                eventSource.close();
-            }
-        } catch (Exception e) {
-            log.warn("Error while closing event source", e);
-        }
-        
-        try {
-            if (client != null) {
-                client.close();
-            }
-        } catch (Exception e) {
-            log.warn("Error while closing client", e);
-        }
-        
+        closeConnection();
         listening.set(false);
     }
 
@@ -288,108 +335,6 @@ public class SSEMessageConsumer extends GenericInboundListener {
                 startListening();
             }
         }, "sse-reconnect-" + name + "-" + UUID.randomUUID()).start();
-    }
-
-    /**
-     * Inject the SSE message data into the mediation sequence
-     */
-    private boolean injectMessage(String data, String contentType, MessageContext msgCtx) {
-        boolean isConsumed = true;
-        
-        try {
-            if (log.isDebugEnabled()) {
-                log.debug("Processing SSE message with Content-Type: " + contentType + " for " + name);
-            }
-            
-            org.apache.axis2.context.MessageContext axis2MsgCtx =
-                    ((Axis2MessageContext) msgCtx).getAxis2MessageContext();
-
-            if (contentType == null || contentType.isEmpty()) {
-                log.warn("Content type not specified, defaulting to application/json for " + name);
-                contentType = "application/json";
-            }
-            
-            // Extract base content type (remove charset etc.)
-            int index = contentType.indexOf(';');
-            String type = index > 0 ? contentType.substring(0, index) : contentType;
-
-            // Get appropriate builder for content type
-            Object builder = BuilderUtil.getBuilderFromSelector(type, axis2MsgCtx);
-            if (builder == null) {
-                if (log.isDebugEnabled()) {
-                    log.debug("No message builder found for type '" + type + "'. Falling back to SOAP for " + name);
-                }
-                builder = new SOAPBuilder();
-            }
-
-            // Build the message
-            InputStream in = new AutoCloseInputStream(new ByteArrayInputStream(data.getBytes()));
-            OMElement documentElement = ((Builder) builder).processDocument(in, contentType, axis2MsgCtx);
-            msgCtx.setEnvelope(TransportUtils.createSOAPEnvelope(documentElement));
-            
-            // Validate injecting sequence
-            if (this.injectingSequence == null || "".equals(this.injectingSequence)) {
-                log.error("Injecting sequence not specified for: " + name);
-                return false;
-            }
-            
-            // Get the sequence mediator
-            SequenceMediator seq = (SequenceMediator) this.synapseEnvironment.getSynapseConfiguration()
-                    .getSequence(this.injectingSequence);
-            
-            if (seq == null) {
-                throw new SynapseException(
-                        "Sequence '" + this.injectingSequence + "' not found for inbound: " + name);
-            }
-            
-            // Set error handler
-            seq.setErrorHandler(this.onErrorSequence);
-            
-            if (log.isDebugEnabled()) {
-                log.debug("Injecting message to sequence: " + this.injectingSequence + " for " + name);
-            }
-            
-            // Inject into sequence
-            if (!this.synapseEnvironment.injectInbound(msgCtx, seq, this.sequential)) {
-                isConsumed = false;
-            }
-            
-            // Check for rollback
-            if (isRollback(msgCtx)) {
-                log.warn("Message marked for rollback for: " + name);
-                isConsumed = false;
-            }
-            
-        } catch (Exception e) {
-            log.error("Error processing SSE message. Expected format: " + contentType, e);
-            isConsumed = false;
-        }
-        
-        return isConsumed;
-    }
-
-    /**
-     * Create a new Synapse MessageContext
-     */
-    private MessageContext createMessageContext() {
-        MessageContext msgCtx = synapseEnvironment.createMessageContext();
-        org.apache.axis2.context.MessageContext axis2MsgCtx =
-                ((Axis2MessageContext) msgCtx).getAxis2MessageContext();
-        axis2MsgCtx.setServerSide(true);
-        axis2MsgCtx.setMessageID(UUID.randomUUID().toString());
-        return msgCtx;
-    }
-
-    /**
-     * Check if message is marked for rollback
-     */
-    private boolean isRollback(MessageContext msgCtx) {
-        Object rollbackProp = msgCtx.getProperty(SSEConstants.SET_ROLLBACK_ONLY);
-        if (rollbackProp != null) {
-            return (rollbackProp instanceof Boolean && ((Boolean) rollbackProp)) ||
-                    (rollbackProp instanceof String && Boolean.parseBoolean((String) rollbackProp));
-        }
-        return false;
     }
 
     /**

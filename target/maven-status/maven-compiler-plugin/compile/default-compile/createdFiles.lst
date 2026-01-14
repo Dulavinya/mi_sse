@@ -1,2 +1,3 @@
-org/wso2/carbon/inbound/SSE/SSEMessageConsumer.class
 org/wso2/carbon/inbound/SSE/SSEConstants.class
+org/wso2/carbon/inbound/SSE/InboundEventStore.class
+org/wso2/carbon/inbound/SSE/SSEMessageConsumer.class
