@@ -68,6 +68,14 @@
       <version>${commons.io.version}</version>
     </dependency>
 
+    <!-- Axis2 - MessageContext, Transport Layer (includes Axiom) -->
+    <dependency>
+      <groupId>org.apache.axis2</groupId>
+      <artifactId>axis2-kernel</artifactId>
+      <version>1.6.4</version>
+      <scope>provided</scope>
+    </dependency>
+
     <!-- JSON Processing - For MCP JSON-RPC parsing -->
     <dependency>
       <groupId>org.json</groupId>
@@ -75,7 +83,7 @@
       <version>20231013</version>
     </dependency>
 
-    <!-- Logging (Provided by WSO2) -->
+    
     <dependency>
       <groupId>commons-logging</groupId>
       <artifactId>commons-logging</artifactId>
