@@ -4,12 +4,14 @@ target/
 *.jar
 *.war
 
-# IDE
-.vscode/
+# IDE - IntelliJ
 .idea/
 *.iml
+
+# Editor artifacts
 *.swp
 *.swo
+*~
 
 # OS
 .DS_Store

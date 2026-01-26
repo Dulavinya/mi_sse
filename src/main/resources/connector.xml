@@ -18,7 +18,7 @@
 -->
 
 <connector>
-    <component name="sseInbound" package="org.wso2.integration.inbound" >
-        <description>WSO2 SSE (Server-Sent Events) Inbound Endpoint</description>
+    <component name="mcpSseInbound" package="org.wso2.carbon.inbound.SSE" >
+        <description>MCP Server-Sent Events (SSE) Inbound Endpoint - Accepts MCP client connections via HTTP SSE</description>
     </component>
 </connector>

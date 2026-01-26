@@ -1,23 +1,49 @@
-# mi-inbound-sse
+# WSO2 MI SSE-Based MCP Server Inbound Endpoint
 
-The SSE (Server-Sent Events) inbound endpoint allows you to receive real-time event streams from SSE-enabled servers through WSO2 Micro Integrator. Server-Sent Events provide a simple and efficient way to push real-time updates from a server to a client over HTTP.
+A Server-Sent Events (SSE) inbound endpoint for WSO2 Micro Integrator that provides Model Context Protocol (MCP) server capabilities. Allows LLM clients (Copilot, Claude, etc.) to communicate with MI integrations over HTTP.
 
 ## Features
 
-- Real-time event streaming from SSE endpoints
-- Automatic reconnection on connection loss
-- Custom header support for authentication
-- Configurable content type handling
-- Sequential or concurrent message processing
+- SSE-based streaming for real-time communication
+- Full MCP protocol support
+- Thread-safe connection management
+- Axis2 native integration
+- Event ID tracking and error handling
 
-## Configuration Parameters
+## Configuration
 
-- **endpointUrl**: The URL of the SSE stream endpoint
-- **contentType**: Expected content type of messages (default: application/json)
-- **headers**: Custom HTTP headers for authentication/authorization
-- **reconnectIntervalMs**: Time to wait before reconnecting (default: 5000ms)
-- **readTimeoutMs**: Read timeout in milliseconds (default: 0 - no timeout)
+```xml
+<inboundEndpoint xmlns="http://ws.apache.org/ns/synapse"
+                 name="MCPSSEServerEndpoint"
+                 protocol="http"
+                 suspend="false">
+    <parameters>
+        <parameter name="inbound.http.port">8765</parameter>
+        <parameter name="inbound.http.context.path">/mcp</parameter>
+        <parameter name="sequence">mcpProcessingSequence</parameter>
+        <parameter name="error.sequence">mcpErrorSequence</parameter>
+    </parameters>
+</inboundEndpoint>
+```
 
-## Usage
+## MCP Methods Supported
 
-Configure the SSE inbound endpoint in your WSO2 MI integration by specifying the endpoint URL and optional parameters like headers and reconnection settings. The endpoint will automatically maintain the connection and inject received events into your configured sequence.
+- `initialize` - Initialize connection
+- `tools/list` - List available tools
+- `tools/call` - Execute tool
+- `resources/list` - List resources
+- `resources/read` - Read resource
+
+## Build
+
+```bash
+mvn clean install
+```
+
+## Deploy
+
+Copy the JAR to `<MI_HOME>/dropins/` and restart MI.
+
+## License
+
+Apache License 2.0

@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+MCP Processing Sequences for Persistent SSE
+These sequences handle incoming MCP commands from persistent SSE connections
+-->
+<sequences xmlns="http://ws.apache.org/ns/synapse">
+
+    <!-- Main MCP Processing Sequence -->
+    <!-- Receives MCP command and routes to SSEMessageConsumer -->
+    <sequence name="mcpProcessingSequence">
+        <log level="full" separator="=== MCP Command Received ==="/>
+        
+        <!-- Extract MCP method and params -->
+        <property name="mcp.method" expression="json-eval($.method)"/>
+        <property name="mcp.params" expression="json-eval($.params)"/>
+        
+        <!-- Route to SSEMessageConsumer for processing -->
+        <class name="org.wso2.carbon.inbound.SSE.SSEMessageConsumer"/>
+        
+        <!-- ❌ DO NOT USE <respond/> - connection stays open -->
+        <!-- SSEMessageConsumer.sendSSEEventToClient() handles response -->
+    </sequence>
+
+    <!-- Error Handling Sequence -->
+    <!-- Invoked when error occurs in MCP processing -->
+    <sequence name="mcpErrorSequence">
+        <log level="full" separator="=== MCP Error ==="/>
+        
+        <!-- Format error as SSE event -->
+        <payloadFactory media-type="json">
+            <format>
+                {
+                    "jsonrpc": "2.0",
+                    "error": {
+                        "code": -32603,
+                        "message": "Internal server error"
+                    },
+                    "id": null
+                }
+            </format>
+        </payloadFactory>
+        
+        <!-- ❌ DO NOT RESPOND - SSE connection stays open -->
+    </sequence>
+
+</sequences>

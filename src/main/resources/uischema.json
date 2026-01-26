@@ -1,9 +1,9 @@
 {
   "id": "org.wso2.carbon.inbound.SSE.SSEMessageConsumer",
-  "name": "sseInbound",
+  "name": "mcpSseInbound",
   "type": "event-integration",
-  "title": "SSE Inbound Endpoint",
-  "help": "Configure Server-Sent Events (SSE) Consumer Settings",
+  "title": "MCP SSE Server Inbound Endpoint",
+  "help": "Configure MCP Server-Sent Events (SSE) Settings",
   "elements": [
     {
       "type": "attributeGroup",
@@ -17,7 +17,7 @@
               "displayName": "Event Integration Name",
               "inputType": "string",
               "required": "true",
-              "helpTip": "Unique identifier for the SSE event integration."
+              "helpTip": "Unique identifier for the MCP SSE server integration."
             }
           },
           {
@@ -53,7 +53,7 @@
                   "generateSequences": false
                 }
               ],
-              "helpTip": "Sequence to inject the SSE message"
+              "helpTip": "Sequence to inject the MCP message"
             }
           },
           {
@@ -120,59 +120,28 @@
     {
       "type": "attributeGroup",
       "value": {
-        "groupName": "SSE Configuration",
+        "groupName": "HTTP Server Configuration",
         "elements": [
           {
             "type": "attribute",
             "value": {
-              "name": "endpointUrl",
-              "displayName": "SSE Endpoint URL",
+              "name": "inbound.http.port",
+              "displayName": "HTTP Port",
               "inputType": "string",
+              "defaultValue": "8765",
               "required": true,
-              "helpTip": "The URL of the SSE stream endpoint. Example: https://example.com/events"
+              "helpTip": "Port number for the MCP SSE HTTP server. Example: 8765"
             }
           },
           {
             "type": "attribute",
             "value": {
-              "name": "contentType",
-              "displayName": "Content Type",
+              "name": "inbound.http.context.path",
+              "displayName": "HTTP Context Path",
               "inputType": "string",
-              "defaultValue": "application/json",
-              "required": false,
-              "helpTip": "The content type of the messages (e.g., application/json, text/plain)"
-            }
-          },
-          {
-            "type": "attribute",
-            "value": {
-              "name": "headers",
-              "displayName": "Custom Headers",
-              "inputType": "string",
-              "required": false,
-              "helpTip": "Custom HTTP headers in format: Header1=Value1,Header2=Value2"
-            }
-          },
-          {
-            "type": "attribute",
-            "value": {
-              "name": "reconnectIntervalMs",
-              "displayName": "Reconnect Interval (ms)",
-              "inputType": "string",
-              "defaultValue": "5000",
-              "required": false,
-              "helpTip": "Time to wait before attempting to reconnect after connection loss (milliseconds)"
-            }
-          },
-          {
-            "type": "attribute",
-            "value": {
-              "name": "readTimeoutMs",
-              "displayName": "Read Timeout (ms)",
-              "inputType": "string",
-              "defaultValue": "0",
-              "required": false,
-              "helpTip": "Read timeout in milliseconds. 0 means no timeout."
+              "defaultValue": "/mcp",
+              "required": true,
+              "helpTip": "HTTP path for the MCP endpoint. Example: /mcp"
             }
           }
         ]

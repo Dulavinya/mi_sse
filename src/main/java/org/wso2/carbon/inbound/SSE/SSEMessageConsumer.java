@@ -2,358 +2,251 @@ package org.wso2.carbon.inbound.SSE;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
-import org.apache.synapse.SynapseException;
-import org.apache.synapse.core.SynapseEnvironment;
 import org.apache.synapse.inbound.InboundProcessorParams;
 import org.wso2.carbon.inbound.endpoint.protocol.generic.GenericInboundListener;
+import org.json.JSONObject;
 
-import java.io.BufferedReader;
-import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.io.InterruptedIOException;
-import java.net.URL;
-import java.net.URLConnection;
-import java.util.Map;
-import java.util.Properties;
-import java.util.UUID;
+import org.apache.axis2.context.MessageContext;
+import org.apache.axiom.om.OMElement;
+import org.apache.axiom.om.OMFactory;
+
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 
-/**
- * SSE Message Consumer - Listener-based implementation of GenericInboundListener
- */
+
+//SSE-Based Inbound Endpoint 
+
 public class SSEMessageConsumer extends GenericInboundListener {
 
     private static final Log log = LogFactory.getLog(SSEMessageConsumer.class);
-    private static final int MAX_STORED_EVENTS = 1000;
-
-    private final String endpointUrl;
-    private final String contentType;
-    private final long reconnectIntervalMs;
-    private final Map<String, String> headers;
-    private final SynapseEnvironment synapseEnvironment;
-    private final boolean sequential;
-
-    private final AtomicBoolean listening = new AtomicBoolean(false);
-    private final AtomicBoolean paused = new AtomicBoolean(false);
     
-    private URLConnection connection;
+    private final AtomicBoolean listening = new AtomicBoolean(false);
+    private final AtomicBoolean clientConnected = new AtomicBoolean(false);
+    private MCPHandler mcpHandler;
+    
+    
+    private MessageContext clientMessageContext;
+    private final AtomicLong eventIdCounter = new AtomicLong(0);
 
-    /**
-     * Constructor called by WSO2 framework
-     * GenericInboundListener expects InboundProcessorParams
-     */
+    
     public SSEMessageConsumer(InboundProcessorParams params) {
-        super(params); 
-        
-        Properties properties = params.getProperties();
-        this.synapseEnvironment = params.getSynapseEnvironment();
-        
-        this.endpointUrl = properties.getProperty(SSEConstants.ENDPOINT_URL);
-        if (this.endpointUrl == null || this.endpointUrl.isEmpty()) {
-            throw new SynapseException("SSE endpoint URL (endpointUrl) is required for SSE inbound: " + name);
-        }
-        
-        this.contentType = properties.getProperty(SSEConstants.CONTENT_TYPE, SSEConstants.DEFAULT_CONTENT_TYPE);
-        this.reconnectIntervalMs = Long.parseLong(properties.getProperty(SSEConstants.RECONNECT_INTERVAL_MS,
-                String.valueOf(SSEConstants.DEFAULT_RECONNECT_INTERVAL_MS)));
-        this.headers = parseHeaders(properties.getProperty(SSEConstants.HEADERS));
-        this.sequential = Boolean.parseBoolean(properties.getProperty(SSEConstants.SEQUENTIAL, "true"));
-        
-        log.info("Initialized SSE inbound endpoint: " + name + " -> " + endpointUrl);
+        super(params);
+        this.mcpHandler = new MCPHandler();
+        log.info("SSE Inbound Endpoint with MCP capability created: " + name);
     }
 
-
-
-    /**
-     * Initialize and start the SSE listener
-     * Called by WSO2 framework when the inbound endpoint is deployed
-     */
+    
+     // init
+     
+    @Override
     public void init() {
-        log.info("init() called for SSE inbound endpoint: " + name);
-        startListening();
+        log.info("Initializing SSE inbound endpoint with MCP: " + name);
+        try {
+            // Initialize 
+            if (mcpHandler == null) {
+                mcpHandler = new MCPHandler();
+            }
+            
+            listening.set(true);
+            log.info("SSE endpoint initialized and listening for MCP commands");
+        } catch (Exception e) {
+            log.error("Failed to initialize SSE endpoint: " + name, e);
+            listening.set(false);
+        }
     }
 
-    /**
-     * Destroy and cleanup resources
-     * Called by WSO2 framework when the inbound endpoint is undeployed
-     */
+   //destroy
+    @Override
     public void destroy() {
-        log.info("destroy() called for SSE inbound endpoint: " + name);
-        stopListening();
+        log.info("Destroying SSE inbound endpoint with MCP: " + name);
+        try {
+            listening.set(false);
+            disconnectClient();
+            mcpHandler = null;
+            log.info("SSE endpoint destroyed");
+        } catch (Exception e) {
+            log.error("Error destroying SSE endpoint: " + name, e);
+        }
     }
 
-    /**
-     * Pause processing of SSE events (but keep connection open)
-     */
+   //pausing the endpoint
     public void pause() {
         log.info("Pausing SSE inbound endpoint: " + name);
-        paused.set(true);
+        listening.set(false);
     }
 
-    /**
-     * Resume/activate the SSE listener
-     */
+    //activate
     public boolean activate() {
         log.info("Activating SSE inbound endpoint: " + name);
-        paused.set(false);
-        if (!listening.get()) {
-            startListening();
+        try {
+            if (!listening.get()) {
+                listening.set(true);
+                log.info("SSE endpoint activated");
+            }
+            return true;
+        } catch (Exception e) {
+            log.error("Failed to activate SSE endpoint: " + name, e);
+            return false;
         }
-        return true;
     }
 
-    /**
-     * Deactivate and stop the SSE listener
-     */
+    //deactivate
     public boolean deactivate() {
-        log.info("Deactivating SSE inbound endpoint: " + name);
-        stopListening();
-        return true;
+        log.info("Deactivating SSE inbound endpoint with MCP: " + name);
+        try {
+            listening.set(false);
+            disconnectClient();
+            return true;
+        } catch (Exception e) {
+            log.error("Error deactivating SSE endpoint: " + name, e);
+            return false;
+        }
     }
 
-    /**
-     * Check if the listener is deactivated
-     */
+    //isDeactivated
     public boolean isDeactivated() {
         return !listening.get();
     }
 
     /**
-     * Start listening to SSE stream using raw HTTP connection (no Jersey to avoid DI issues)
+     * Handle MCP command from client via persistent SSE connection
+     * Response is sent via SSE event, connection stays open
      */
-    public void startListening() {
-        if (listening.get()) {
-            log.warn("SSE consumer already listening for: " + name);
-            return;
+    public JSONObject handleMCPCommand(String method, JSONObject params) {
+        JSONObject response = new JSONObject();
+        
+        if (!listening.get()) {
+            log.warn("MCP command received but endpoint is not listening: " + name);
+            response.put("error", new JSONObject()
+                .put("code", -32603)
+                .put("message", "Endpoint not listening"));
+            sendSSEEventToClient(response);
+            return response;
         }
         
-        listening.set(true);
-        new Thread(() -> {
-            try {
-                if (log.isDebugEnabled()) {
-                    log.debug("Starting SSE listener thread for: " + name);
-                }
-                
-                URL url = new URL(endpointUrl);
-                connection = url.openConnection();
-                
-                // Set connection timeouts
-                connection.setConnectTimeout(10000);  // 10 seconds
-                connection.setReadTimeout(300000);    // 5 minutes
-                
-                // Add custom headers if any
-                if (headers != null && !headers.isEmpty()) {
-                    for (Map.Entry<String, String> header : headers.entrySet()) {
-                        connection.setRequestProperty(header.getKey(), header.getValue());
-                    }
-                }
-                
-                // Set Accept header for SSE
-                connection.setRequestProperty("Accept", contentType);
-                connection.setRequestProperty("Cache-Control", "no-cache");
-                connection.setRequestProperty("Connection", "keep-alive");
-                
-                // Connect and read stream
-                InputStream inputStream = connection.getInputStream();
-                log.info("Connected to SSE endpoint: " + name + " -> " + endpointUrl);
-                processSSEStream(inputStream);
-                
-            } catch (java.io.EOFException e) {
-                log.info("SSE stream ended for: " + name);
-                scheduleReconnect();
-            } catch (InterruptedIOException e) {
-                log.info("SSE listener interrupted for: " + name);
-            } catch (Exception e) {
-                log.error("Error in SSE listener for: " + name, e);
-                scheduleReconnect();
-            } finally {
-                listening.set(false);
-                closeConnection();
-            }
-        }, "SSE-Listener-" + name).start();
-        
-        log.info("Started SSE listener thread for: " + name + " -> " + endpointUrl);
-    }
-    
-    /**
-     * Process the SSE stream line by line
-     */
-    private void processSSEStream(InputStream inputStream) throws Exception {
-        String line;
-        StringBuilder eventData = new StringBuilder();
-        String eventId = null;
-        
-        try (java.io.BufferedReader reader = new java.io.BufferedReader(
-                new java.io.InputStreamReader(inputStream, "UTF-8"))) {
+        try {
+            log.debug("Handling MCP command: " + method + ", params: " + params.toString());
             
-            while ((line = reader.readLine()) != null && listening.get()) {
-                if (paused.get()) {
-                    Thread.sleep(100); // Brief pause if paused
-                    continue;
-                }
-                
-                line = line.trim();
-                
-                // Empty line marks end of event
-                if (line.isEmpty()) {
-                    if (eventData.length() > 0) {
-                        onEvent(eventId, eventData.toString());
-                        eventData.setLength(0);
-                        eventId = null;
-                    }
-                    continue;
-                }
-                
-                
-                if (line.startsWith(":")) {
-                    continue;
-                }
-                
-                // Parse field: value format
-                if (line.contains(":")) {
-                    String[] parts = line.split(":", 2);
-                    String field = parts[0].trim();
-                    String value = (parts.length > 1 ? parts[1].trim() : "");
-                    
-                    if ("id".equals(field)) {
-                        eventId = value;
-                    } else if ("data".equals(field)) {
-                        if (eventData.length() > 0) {
-                            eventData.append("\\n");
-                        }
-                        eventData.append(value);
-                    } else if ("event".equals(field)) {
-                        // Optional: event type
-                    }
-                }
-            }
-        } catch (java.io.EOFException e) {
-            log.info("SSE stream ended for: " + name);
-        } catch (InterruptedIOException e) {
-            log.info("SSE listener interrupted for: " + name);
+            // Route to MCPHandler for MCP protocol handling
+            response = mcpHandler.handleCommand(method, params);
+            
+            // Send response via SSE (connection stays open - no sequence respond() call)
+            sendSSEEventToClient(response);
+            
+            log.debug("MCP response sent via SSE to client: " + response.toString());
+            
+        } catch (Exception e) {
+            log.error("Error handling MCP command: " + method, e);
+            response.put("error", new JSONObject()
+                .put("code", -32603)
+                .put("message", "Internal error: " + e.getMessage()));
+            
+            sendSSEEventToClient(response);
+        }
+        
+        return response;
+    }
+
+   // GET MCP HANDLER
+    public MCPHandler getMCPHandler() {
+        return mcpHandler;
+    }
+
+    //islistening()
+    public boolean isListening() {
+        return listening.get();
+    }
+
+    /**
+     * Called when client first connects (HTTP POST with SSE headers)
+     * Stores MessageContext for persistent connection; connection stays open for multiple commands
+     */
+    public void connectClient(MessageContext msgContext) {
+        try {
+            this.clientMessageContext = msgContext;
+            clientConnected.set(true);
+            
+            // Set SSE response headers on MessageContext
+            msgContext.setProperty("Content-Type", "text/event-stream");
+            msgContext.setProperty("Cache-Control", "no-cache");
+            msgContext.setProperty("Connection", "keep-alive");
+            
+            log.info("SSE client connected - persistent connection established for: " + name);
+            
+            // Send welcome event
+            sendSSEEventToClient(new JSONObject()
+                .put("type", "welcome")
+                .put("message", "Connected to WSO2 MI SSE-based MCP endpoint")
+                .put("endpoint", name)
+                .put("timestamp", System.currentTimeMillis()));
+            
+        } catch (Exception e) {
+            log.error("Error connecting SSE client: " + name, e);
+            clientConnected.set(false);
         }
     }
 
     /**
-     * Stop listening to SSE stream
+     * Called when client disconnects or connection closes
+     * Cleans up persistent connection resources
      */
-    public void stopListening() {
-        listening.set(false);
-        closeConnection();
-        log.info("Stopped SSE listener for: " + name);
-    }
-    
-    /**
-     * Close the HTTP connection
-     */
-    private void closeConnection() {
-        if (connection != null) {
-            try {
-                if (connection instanceof java.net.HttpURLConnection) {
-                    ((java.net.HttpURLConnection) connection).disconnect();
-                }
-            } catch (Exception e) {
-                log.debug("Error closing HTTP connection: " + e.getMessage());
+    public void disconnectClient() {
+        try {
+            if (clientMessageContext != null) {
+                clientMessageContext = null;
             }
+            clientConnected.set(false);
+            log.info("SSE client disconnected from: " + name);
+        } catch (Exception e) {
+            log.error("Error disconnecting client from: " + name, e);
         }
     }
 
     /**
-     * Callback when SSE event is received
-     * Events are stored in global InboundEventStore for later access
+     * Check if SSE client is currently connected via persistent connection
      */
-    private void onEvent(String id, String data) {
-        // Skip processing if paused
-        if (paused.get()) {
-            if (log.isDebugEnabled()) {
-                log.debug("SSE endpoint is paused, skipping event for: " + name);
-            }
+    public boolean isClientConnected() {
+        return clientConnected.get() && clientMessageContext != null;
+    }
+
+    /**
+     * Send SSE formatted event to client via persistent connection
+     * Connection stays open after sending (no sequence respond() called)
+     * Multiple events can be sent through same MessageContext
+     */
+    public void sendSSEEventToClient(JSONObject eventData) {
+        if (!clientConnected.get() || clientMessageContext == null) {
+            log.warn("Cannot send SSE event: client not connected to: " + name);
             return;
         }
         
         try {
-            log.info("Received SSE event [id=" + id + ", data=" + data + "] for: " + name);
+            long eventId = eventIdCounter.incrementAndGet();
             
-            // Store event in global store
-            InboundEventStore.add(data);
+            // Format event in SSE protocol: id, event type, data
+            StringBuilder sseEvent = new StringBuilder();
+            sseEvent.append("id: ").append(eventId).append("\n");
+            sseEvent.append("event: mcp_response\n");
+            sseEvent.append("data: ").append(eventData.toString()).append("\n\n");
             
-            if (log.isDebugEnabled()) {
-                log.debug("Event stored in global store. Total events: " + InboundEventStore.getSize());
-            }
+            // Add to SOAP envelope body as OMElement
+            OMFactory omFactory = clientMessageContext.getEnvelope().getOMFactory();
+            OMElement responseElement = omFactory.createOMElement("sseEvent", null);
+            responseElement.setText(sseEvent.toString());
+            
+            clientMessageContext.getEnvelope().getBody().addChild(responseElement);
+            
+            log.debug("SSE event sent to client on: " + name + " - Event ID: " + eventId + 
+                      ", Data: " + eventData.toString());
+            
+            // ✅ CRITICAL: No respond() called on sequence - connection stays open for next command
             
         } catch (Exception e) {
-            log.error("Error handling SSE event for: " + name, e);
+            log.error("Error sending SSE event to client on: " + name, e);
+            disconnectClient();
         }
     }
 
-    /**
-     * Callback when SSE stream encounters an error
-     */
-    private void onError(Throwable t) {
-        log.error("SSE error for: " + name, t);
-        safeCloseEventSource();
-        
-        if (!paused.get()) {
-            scheduleReconnect();
-        }
-    }
-
-    /**
-     * Callback when SSE stream completes
-     */
-    private void onComplete() {
-        log.info("SSE stream completed for: " + name);
-        safeCloseEventSource();
-        
-        if (!paused.get()) {
-            scheduleReconnect();
-        }
-    }
-
-    /**
-     * Safely close resources (called when error or completion occurs)
-     */
-    private void safeCloseEventSource() {
-        closeConnection();
-        listening.set(false);
-    }
-
-    /**
-     * Schedule reconnection after error or completion
-     */
-    private void scheduleReconnect() {
-        new Thread(() -> {
-            try {
-                log.info("Scheduling reconnect in " + reconnectIntervalMs + "ms for: " + name);
-                Thread.sleep(reconnectIntervalMs);
-            } catch (InterruptedException ignored) {
-                Thread.currentThread().interrupt();
-            }
-            
-            if (!listening.get() && !paused.get()) {
-                log.info("Attempting to reconnect SSE for: " + name);
-                startListening();
-            }
-        }, "sse-reconnect-" + name + "-" + UUID.randomUUID()).start();
-    }
-
-    /**
-     * Parse header string into map
-     * Format: "key1=value1,key2=value2"
-     */
-    private Map<String, String> parseHeaders(String raw) {
-        Map<String, String> map = new java.util.HashMap<>();
-        if (raw == null || raw.isEmpty()) {
-            return map;
-        }
-        
-        String[] pairs = raw.split(",");
-        for (String p : pairs) {
-            String[] kv = p.split("=", 2);
-            if (kv.length == 2) {
-                map.put(kv[0].trim(), kv[1].trim());
-            }
-        }
-        return map;
-    }
+    
+    
 }
