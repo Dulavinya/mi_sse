@@ -108,10 +108,7 @@ public class SSEMessageConsumer extends GenericInboundListener {
         return !listening.get();
     }
 
-    /**
-     * Handle MCP command from client via persistent SSE connection
-     * Response is sent via SSE event, connection stays open
-     */
+    
     public JSONObject handleMCPCommand(String method, JSONObject params) {
         JSONObject response = new JSONObject();
         
@@ -127,10 +124,10 @@ public class SSEMessageConsumer extends GenericInboundListener {
         try {
             log.debug("Handling MCP command: " + method + ", params: " + params.toString());
             
-            // Route to MCPHandler for MCP protocol handling
+            
             response = mcpHandler.handleCommand(method, params);
             
-            // Send response via SSE (connection stays open - no sequence respond() call)
+        
             sendSSEEventToClient(response);
             
             log.debug("MCP response sent via SSE to client: " + response.toString());
@@ -157,39 +154,31 @@ public class SSEMessageConsumer extends GenericInboundListener {
         return listening.get();
     }
 
-    /**
-     * Called when client first connects (HTTP POST with SSE headers)
-     * Stores MessageContext for persistent connection; connection stays open for multiple commands
-     */
+    
     public void connectClient(MessageContext msgContext) {
         try {
             this.clientMessageContext = msgContext;
             clientConnected.set(true);
             
-            // Set SSE response headers on MessageContext
+          
             msgContext.setProperty("Content-Type", "text/event-stream");
             msgContext.setProperty("Cache-Control", "no-cache");
             msgContext.setProperty("Connection", "keep-alive");
             
-            log.info("SSE client connected - persistent connection established for: " + name);
             
-            // Send welcome event
             sendSSEEventToClient(new JSONObject()
-                .put("type", "welcome")
-                .put("message", "Connected to WSO2 MI SSE-based MCP endpoint")
-                .put("endpoint", name)
-                .put("timestamp", System.currentTimeMillis()));
+                
+                .put("message", "Connected ")
+                .put("endpoint", name));
+                
             
         } catch (Exception e) {
-            log.error("Error connecting SSE client: " + name, e);
+            log.error("Error connecting : " + name, e);
             clientConnected.set(false);
         }
     }
 
-    /**
-     * Called when client disconnects or connection closes
-     * Cleans up persistent connection resources
-     */
+    
     public void disconnectClient() {
         try {
             if (clientMessageContext != null) {
@@ -202,18 +191,12 @@ public class SSEMessageConsumer extends GenericInboundListener {
         }
     }
 
-    /**
-     * Check if SSE client is currently connected via persistent connection
-     */
+    
     public boolean isClientConnected() {
         return clientConnected.get() && clientMessageContext != null;
     }
 
-    /**
-     * Send SSE formatted event to client via persistent connection
-     * Connection stays open after sending (no sequence respond() called)
-     * Multiple events can be sent through same MessageContext
-     */
+    
     public void sendSSEEventToClient(JSONObject eventData) {
         if (!clientConnected.get() || clientMessageContext == null) {
             log.warn("Cannot send SSE event: client not connected to: " + name);
@@ -223,13 +206,13 @@ public class SSEMessageConsumer extends GenericInboundListener {
         try {
             long eventId = eventIdCounter.incrementAndGet();
             
-            // Format event in SSE protocol: id, event type, data
+           
             StringBuilder sseEvent = new StringBuilder();
             sseEvent.append("id: ").append(eventId).append("\n");
             sseEvent.append("event: mcp_response\n");
             sseEvent.append("data: ").append(eventData.toString()).append("\n\n");
             
-            // Add to SOAP envelope body as OMElement
+            
             OMFactory omFactory = clientMessageContext.getEnvelope().getOMFactory();
             OMElement responseElement = omFactory.createOMElement("sseEvent", null);
             responseElement.setText(sseEvent.toString());
@@ -239,10 +222,10 @@ public class SSEMessageConsumer extends GenericInboundListener {
             log.debug("SSE event sent to client on: " + name + " - Event ID: " + eventId + 
                       ", Data: " + eventData.toString());
             
-            // ✅ CRITICAL: No respond() called on sequence - connection stays open for next command
+            
             
         } catch (Exception e) {
-            log.error("Error sending SSE event to client on: " + name, e);
+            log.error("Error", e);
             disconnectClient();
         }
     }

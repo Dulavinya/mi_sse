@@ -1,5 +1,5 @@
-# MCP SSE Server Inbound Endpoint Descriptor
-# Dependencies for WSO2 MI MCP SSE Server
+
+# Dependencies for WSO2 MI MCP Server
 
 name: "MCP SSE Inbound Endpoint"
 version: "1.0.0"

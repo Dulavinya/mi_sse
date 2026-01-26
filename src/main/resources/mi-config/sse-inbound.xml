@@ -1,26 +1,23 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!--
-MCP SSE Server - Inbound Endpoint Configuration
-Persistent SSE connection for real-time MCP command streaming
--->
+
 <inboundEndpoint xmlns="http://ws.apache.org/ns/synapse"
                  name="MCPSSEServerEndpoint"
                  protocol="http"
                  suspend="false">
     <parameters>
-        <!-- HTTP Server Configuration -->
+        
         <parameter name="inbound.http.port">8765</parameter>
         <parameter name="inbound.http.context.path">/mcp</parameter>
         
-        <!-- SSE Configuration (Persistent Connection) -->
+        
         <parameter name="inbound.http.content-type">text/event-stream</parameter>
         <parameter name="inbound.http.cache-control">no-cache</parameter>
         <parameter name="inbound.http.connection">keep-alive</parameter>
         
-        <!-- Disable default response handling (for persistent SSE) -->
+
         <parameter name="inbound.http.disable.auto.response">true</parameter>
         
-        <!-- Class that handles the connection -->
+        
         <parameter name="inbound.listener.class">org.wso2.carbon.inbound.SSE.SSEMessageConsumer</parameter>
     </parameters>
 </inboundEndpoint>

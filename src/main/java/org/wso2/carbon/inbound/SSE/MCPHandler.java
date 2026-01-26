@@ -9,7 +9,6 @@ public class MCPHandler {
     
     private static final Log log = LogFactory.getLog(MCPHandler.class);
     
-
     public JSONObject handleCommand(String method, JSONObject params) {
         JSONObject response = new JSONObject();
         
@@ -38,7 +37,8 @@ public class MCPHandler {
         
         return response;
     }
-
+    
+    //initialize
     private JSONObject handleInitialize(JSONObject params) {
         JSONObject response = new JSONObject();
         JSONObject result = new JSONObject();
@@ -58,21 +58,24 @@ public class MCPHandler {
         return response;
     }
     
-
+    //tool list
     private JSONObject handleToolsList(JSONObject params) {
         JSONObject response = new JSONObject();
         JSONArray tools = new JSONArray();
- 
+        
+        // implement tool registration
+        
         JSONObject result = new JSONObject();
         result.put("tools", tools);
         response.put("result", result);
         return response;
     }
-
+    
+    
     private JSONObject handleToolCall(JSONObject params) {
         JSONObject response = new JSONObject();
         
-       
+        // implement tool execution
         response.put("error", new JSONObject()
             .put("code", -32601)
             .put("message", "No tools available"));

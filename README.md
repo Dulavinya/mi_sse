@@ -1,10 +1,12 @@
 # WSO2 MI SSE-Based MCP Server Inbound Endpoint
 
-A Server-Sent Events (SSE) inbound endpoint for WSO2 Micro Integrator that provides Model Context Protocol (MCP) server capabilities. Allows LLM clients (Copilot, Claude, etc.) to communicate with MI integrations over HTTP.
+A Server-Sent Events (SSE) inbound endpoint for WSO2 Micro Integrator that provides Model Context Protocol (MCP) server capabilities. 
 
 ## Features
 
+
 ## Configuration
+
 
 ## MCP Methods Supported
 
@@ -13,6 +15,4 @@ A Server-Sent Events (SSE) inbound endpoint for WSO2 Micro Integrator that provi
 - `tools/call` - Execute tool
 - `resources/list` - List resources
 - `resources/read` - Read resource
-
-
 
