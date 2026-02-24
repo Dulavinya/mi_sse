@@ -3,6 +3,8 @@ package org.wso2.carbon.inbound.SSE;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.synapse.inbound.InboundProcessorParams;
+import org.apache.synapse.config.SynapseConfiguration;
+import org.apache.synapse.core.SynapseEnvironment;
 import org.wso2.carbon.inbound.endpoint.protocol.generic.GenericInboundListener;
 import org.json.JSONObject;
 
@@ -19,10 +21,13 @@ import java.util.concurrent.atomic.AtomicLong;
 public class SSEMessageConsumer extends GenericInboundListener {
 
     private static final Log log = LogFactory.getLog(SSEMessageConsumer.class);
+    private static final String MCP_TOOLS_LOCALENTRY_PARAM = "mcp.tools.localentry";
     
     private final AtomicBoolean listening = new AtomicBoolean(false);
     private final AtomicBoolean clientConnected = new AtomicBoolean(false);
     private MCPHandler mcpHandler;
+    private SynapseConfiguration synapseConfig;
+    private String toolsLocalEntryKey;
     
     
     private MessageContext clientMessageContext;
@@ -31,8 +36,20 @@ public class SSEMessageConsumer extends GenericInboundListener {
     
     public SSEMessageConsumer(InboundProcessorParams params) {
         super(params);
-        this.mcpHandler = new MCPHandler();
-        log.info("SSE Inbound Endpoint with MCP capability created: " + name);
+        // Get SynapseConfiguration from InboundProcessorParams
+        if (params.getSynapseEnvironment() != null) {
+            this.synapseConfig = params.getSynapseEnvironment().getSynapseConfiguration();
+        }
+        
+        // Get the LocalEntry reference from inbound endpoint parameters
+        this.toolsLocalEntryKey = params.getProperties().getProperty(MCP_TOOLS_LOCALENTRY_PARAM);
+        if (toolsLocalEntryKey == null) {
+            toolsLocalEntryKey = "mcp_tools"; // Default value
+        }
+        
+        this.mcpHandler = new MCPHandler(synapseConfig, toolsLocalEntryKey);
+        log.info("SSE Inbound Endpoint with MCP capability created: " + name + 
+                 ", Tools LocalEntry: " + toolsLocalEntryKey);
     }
 
     
@@ -40,15 +57,19 @@ public class SSEMessageConsumer extends GenericInboundListener {
      
     @Override
     public void init() {
-        log.info("Initializing SSE inbound endpoint with MCP: " + name);
+        log.info("Initializing SSE inbound endpoint with MCP: " + name + 
+                 ", Using tools from LocalEntry: " + toolsLocalEntryKey);
         try {
-            // Initialize 
+            // Initialize MCP Handler with SynapseConfiguration and LocalEntry key
             if (mcpHandler == null) {
-                mcpHandler = new MCPHandler();
+                mcpHandler = new MCPHandler(synapseConfig, toolsLocalEntryKey);
+            } else if (synapseConfig != null) {
+                mcpHandler.setSynapseConfiguration(synapseConfig);
+                mcpHandler.setToolsLocalEntryKey(toolsLocalEntryKey);
             }
             
             listening.set(true);
-            log.info("SSE endpoint initialized and listening for MCP commands");
+            log.info("SSE endpoint initialized and listening for MCP commands from LocalEntry: " + toolsLocalEntryKey);
         } catch (Exception e) {
             log.error("Failed to initialize SSE endpoint: " + name, e);
             listening.set(false);

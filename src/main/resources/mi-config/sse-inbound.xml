@@ -17,6 +17,8 @@
 
         <parameter name="inbound.http.disable.auto.response">true</parameter>
         
+        <!-- Reference to the LocalEntry containing tool configuration -->
+        <parameter name="mcp.tools.localentry">mcp_tools</parameter>
         
         <parameter name="inbound.listener.class">org.wso2.carbon.inbound.SSE.SSEMessageConsumer</parameter>
     </parameters>

@@ -83,6 +83,14 @@
       <version>20231013</version>
     </dependency>
 
+    <!-- Apache Synapse Core - For Registry and SynapseConfiguration access -->
+    <dependency>
+      <groupId>org.apache.synapse</groupId>
+      <artifactId>synapse-core</artifactId>
+      <version>4.1.0-wso2v2</version>
+      <scope>provided</scope>
+    </dependency>
+
     
     <dependency>
       <groupId>commons-logging</groupId>
