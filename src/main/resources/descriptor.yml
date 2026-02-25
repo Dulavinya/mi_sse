@@ -33,8 +33,3 @@ components:
     class: "org.wso2.carbon.inbound.SSE.SSEMessageConsumer"
     package: "org.wso2.carbon.inbound.SSE"
     description: "SSE-based MCP inbound endpoint listener"
-
-configurations:
-  inbound-endpoint: "src/main/resources/mi-config/sse-inbound.xml"
-  sequences: "src/main/resources/mi-config/mcp-sequences.xml"
-  ui-schema: "src/main/resources/uischema.json"

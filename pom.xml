@@ -47,7 +47,6 @@
 
     <!-- Plugin Versions -->
     <maven.compiler.plugin.version>3.8.1</maven.compiler.plugin.version>
-    <maven.assembly.plugin.version>3.3.0</maven.assembly.plugin.version>
   </properties>
 
   <dependencies>
@@ -143,28 +142,6 @@
             <classpathContainer>org.eclipse.jdt.launching.JRE_CONTAINER</classpathContainer>
           </classpathContainers>
         </configuration>
-      </plugin>
-
-      <!-- Maven Assembly Plugin - Package as ZIP -->
-      <plugin>
-        <groupId>org.apache.maven.plugins</groupId>
-        <artifactId>maven-assembly-plugin</artifactId>
-        <version>${maven.assembly.plugin.version}</version>
-        <executions>
-          <execution>
-            <id>make-assembly</id>
-            <phase>package</phase>
-            <goals>
-              <goal>single</goal>
-            </goals>
-            <configuration>
-              <appendAssemblyId>false</appendAssemblyId>
-              <descriptors>
-                <descriptor>src/main/assembly/zip-assembly.xml</descriptor>
-              </descriptors>
-            </configuration>
-          </execution>
-        </executions>
       </plugin>
 
       <!-- Maven JAR Plugin - Build JAR with dependencies -->
