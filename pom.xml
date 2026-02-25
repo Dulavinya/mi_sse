@@ -40,11 +40,6 @@
     <!-- WSO2 Dependencies -->
     <carbon.mediation.version>4.7.175</carbon.mediation.version>
 
-
-
-    <!-- Commons IO -->
-    <commons.io.version>2.11.0</commons.io.version>
-
     <!-- Plugin Versions -->
     <maven.compiler.plugin.version>3.8.1</maven.compiler.plugin.version>
   </properties>
@@ -58,16 +53,7 @@
       <scope>provided</scope>
     </dependency>
 
-
-
-    <!-- Apache Commons IO -->
-    <dependency>
-      <groupId>commons-io</groupId>
-      <artifactId>commons-io</artifactId>
-      <version>${commons.io.version}</version>
-    </dependency>
-
-    <!-- Axis2 - MessageContext, Transport Layer (includes Axiom) -->
+    <!-- Axis2 - MessageContext, Transport Layer -->
     <dependency>
       <groupId>org.apache.axis2</groupId>
       <artifactId>axis2-kernel</artifactId>
@@ -82,7 +68,7 @@
       <version>20231013</version>
     </dependency>
 
-    <!-- Apache Synapse Core - For Registry and SynapseConfiguration access -->
+    <!-- Apache Synapse Core - For SynapseConfiguration access -->
     <dependency>
       <groupId>org.apache.synapse</groupId>
       <artifactId>synapse-core</artifactId>
@@ -90,20 +76,12 @@
       <scope>provided</scope>
     </dependency>
 
-    
+    <!-- Commons Logging -->
     <dependency>
       <groupId>commons-logging</groupId>
       <artifactId>commons-logging</artifactId>
       <version>1.2</version>
       <scope>provided</scope>
-    </dependency>
-
-    <!-- JUnit - Unit Testing Framework -->
-    <dependency>
-      <groupId>junit</groupId>
-      <artifactId>junit</artifactId>
-      <version>4.13.2</version>
-      <scope>test</scope>
     </dependency>
   </dependencies>
 
@@ -118,33 +96,10 @@
           <source>${java.version}</source>
           <target>${java.version}</target>
           <encoding>${project.build.sourceEncoding}</encoding>
-          <!-- Add jdk.httpserver module for Java 9+ compatibility -->
-          <release>8</release>
-          <compilerArgs>
-            <arg>-XDignore.symbol.file</arg>
-          </compilerArgs>
         </configuration>
       </plugin>
 
-      <!-- Configure Eclipse project settings to suppress restricted API warnings -->
-      <plugin>
-        <groupId>org.apache.maven.plugins</groupId>
-        <artifactId>maven-eclipse-plugin</artifactId>
-        <version>2.10</version>
-        <configuration>
-          <projectnatures>
-            <projectnature>org.eclipse.jdt.core.javanature</projectnature>
-          </projectnatures>
-          <buildcommands>
-            <buildcommand>org.eclipse.jdt.core.javabuilder</buildcommand>
-          </buildcommands>
-          <classpathContainers>
-            <classpathContainer>org.eclipse.jdt.launching.JRE_CONTAINER</classpathContainer>
-          </classpathContainers>
-        </configuration>
-      </plugin>
-
-      <!-- Maven JAR Plugin - Build JAR with dependencies -->
+      <!-- Maven JAR Plugin - Build JAR -->
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-jar-plugin</artifactId>
