@@ -4,94 +4,98 @@ import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.synapse.MessageContext;
 import org.apache.synapse.mediators.AbstractMediator;
-import org.apache.synapse.config.SynapseConfiguration;
-import org.json.JSONObject;
-import org.apache.axiom.om.OMElement;
-import org.apache.axiom.om.OMFactory;
 
-/**
- * Mediator to handle MCP requests - parses JSON, calls MCPHandler, returns response
- */
 public class MCPRequestMediator extends AbstractMediator {
-    
+
     private static final Log log = LogFactory.getLog(MCPRequestMediator.class);
-    
+    private MCPInboundHttpListener httpListener;
+
+    public MCPRequestMediator() {
+        log.info("MCPRequestMediator initialized");
+    }
+
     @Override
     public boolean mediate(MessageContext synCtx) {
+        log.debug("MCPRequestMediator.mediate() called");
+
         try {
-            log.info("MCPRequestMediator: Processing MCP request");
+            // Get the underlying Axis2 MessageContext - try multiple property names
+            org.apache.axis2.context.MessageContext axis2MsgCtx = 
+                (org.apache.axis2.context.MessageContext) synCtx.getProperty("axis2mctx");
             
-            // Get the request body
-            OMElement bodyElement = null;
-            org.apache.axiom.om.OMNode firstNode = synCtx.getEnvelope().getBody().getFirstOMChild();
-            if (firstNode instanceof OMElement) {
-                bodyElement = (OMElement) firstNode;
+            if (axis2MsgCtx == null) {
+                // Try alternative property name
+                axis2MsgCtx = (org.apache.axis2.context.MessageContext) synCtx.getProperty("AXIS2_CONTEXT");
             }
-            String requestBody = bodyElement != null ? bodyElement.getText() : "{}";
             
-            log.info("MCPRequestMediator: Request body: " + requestBody);
-            
-            // Parse JSON request
-            JSONObject requestJson = new JSONObject(requestBody);
-            String method = requestJson.getString("method");
-            JSONObject params = requestJson.optJSONObject("params");
-            if (params == null) {
-                params = new JSONObject();
-            }
-            long requestId = requestJson.optLong("id", 1);
-            
-            log.info("MCPRequestMediator: Method=" + method + ", ID=" + requestId);
-            
-            // Get SynapseConfiguration and create MCPHandler
-            SynapseConfiguration synConfig = synCtx.getConfiguration();
-            MCPHandler handler = new MCPHandler(synConfig, "testMcpEntry");
-            
-            // Call MCPHandler
-            JSONObject response = handler.handleCommand(method, params, requestId);
-            
-            log.info("MCPRequestMediator: Response: " + response.toString());
-            
-            // Set response in message
-            OMFactory factory = synCtx.getEnvelope().getOMFactory();
-            OMElement responseElement = factory.createOMElement("Response", null);
-            responseElement.setText(response.toString());
-            
-            // Replace body
-            org.apache.axiom.om.OMNode existingNode = synCtx.getEnvelope().getBody().getFirstOMChild();
-            if (existingNode != null) {
-                existingNode.detach();
-            }
-            synCtx.getEnvelope().getBody().addChild(responseElement);
-            
-            return true;
-            
-        } catch (Exception e) {
-            log.error("MCPRequestMediator: Error - " + e.getMessage(), e);
-            
-            try {
-                JSONObject errorResponse = new JSONObject();
-                errorResponse.put("jsonrpc", "2.0");
-                errorResponse.put("id", 1);
-                JSONObject error = new JSONObject();
-                error.put("code", -32603);
-                error.put("message", "Internal error: " + e.getMessage());
-                errorResponse.put("error", error);
-                
-                OMFactory factory = synCtx.getEnvelope().getOMFactory();
-                OMElement errorElement = factory.createOMElement("Error", null);
-                errorElement.setText(errorResponse.toString());
-                
-                org.apache.axiom.om.OMNode existingNode = synCtx.getEnvelope().getBody().getFirstOMChild();
-                if (existingNode != null) {
-                    existingNode.detach();
+            if (axis2MsgCtx == null) {
+                // Last resort: use the property directly from synCtx
+                Object msgCtx = synCtx.getProperty(org.apache.axis2.context.MessageContext.class.getName());
+                if (msgCtx instanceof org.apache.axis2.context.MessageContext) {
+                    axis2MsgCtx = (org.apache.axis2.context.MessageContext) msgCtx;
                 }
-                synCtx.getEnvelope().getBody().addChild(errorElement);
-                
-            } catch (Exception ex) {
-                log.error("MCPRequestMediator: Failed to create error response", ex);
             }
-            
+
+            if (axis2MsgCtx == null) {
+                log.warn("axis2mctx not found in message context, using synCtx directly");
+                // If we can't find it, we'll process the synCtx directly
+                processRequest(synCtx, null);
+                return true;
+            }
+
+            // Create listener instance if needed
+            if (httpListener == null) {
+                httpListener = new MCPInboundHttpListener(
+                    synCtx.getEnvironment().getSynapseConfiguration().getProperties(),
+                    "MCPEndpoint",
+                    synCtx.getEnvironment(),
+                    0,
+                    null,
+                    null,
+                    false,
+                    false
+                );
+                httpListener.init();
+            }
+
+            // Delegate to onMessage
+            httpListener.onMessage(axis2MsgCtx);
+
             return true;
+        } catch (Exception e) {
+            log.error("Error in MCPRequestMediator", e);
+            return false;
+        }
+    }
+
+    /**
+     * Process request if axis2MsgCtx is not available
+     */
+    private void processRequest(MessageContext synCtx, org.apache.axis2.context.MessageContext axis2MsgCtx) {
+        try {
+            log.info("Processing request via Synapse MessageContext");
+            // Create listener instance if needed
+            if (httpListener == null) {
+                httpListener = new MCPInboundHttpListener(
+                    synCtx.getEnvironment().getSynapseConfiguration().getProperties(),
+                    "MCPEndpoint",
+                    synCtx.getEnvironment(),
+                    0,
+                    null,
+                    null,
+                    false,
+                    false
+                );
+                httpListener.init();
+            }
+
+            if (axis2MsgCtx != null) {
+                httpListener.onMessage(axis2MsgCtx);
+            } else {
+                log.warn("Cannot process - no valid MessageContext available");
+            }
+        } catch (Exception e) {
+            log.error("Error processing request", e);
         }
     }
 }

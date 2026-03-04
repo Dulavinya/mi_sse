@@ -5,7 +5,7 @@ import org.apache.commons.logging.LogFactory;
 import org.apache.synapse.inbound.InboundProcessorParams;
 import org.apache.synapse.config.SynapseConfiguration;
 import org.apache.synapse.core.SynapseEnvironment;
-import org.wso2.carbon.inbound.endpoint.protocol.generic.GenericInboundListener;
+import org.wso2.carbon.inbound.endpoint.protocol.http.InboundHttpListener;
 import org.json.JSONObject;
 import org.json.JSONException;
 import org.apache.axiom.om.OMElement;
@@ -18,9 +18,9 @@ import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.Scanner;
 
-public class SSEMessageConsumer extends GenericInboundListener {
+public class MCPInboundHttpListener extends InboundHttpListener {
 
-    private static final Log log = LogFactory.getLog(SSEMessageConsumer.class);
+    private static final Log log = LogFactory.getLog(MCPInboundHttpListener.class);
     private static final String MCP_TOOLS_LOCALENTRY_PARAM = "mcp.tools.localentry";
 
     private final AtomicBoolean listening = new AtomicBoolean(false);
@@ -28,104 +28,43 @@ public class SSEMessageConsumer extends GenericInboundListener {
     private SynapseConfiguration synapseConfig;
     private String toolsLocalEntryKey;
 
-    public SSEMessageConsumer(InboundProcessorParams params) {
+    public MCPInboundHttpListener(InboundProcessorParams params) {
         super(params);
         this.synapseConfig = params.getSynapseEnvironment() != null ?
                 params.getSynapseEnvironment().getSynapseConfiguration() : null;
         this.toolsLocalEntryKey = params.getProperties().getProperty(MCP_TOOLS_LOCALENTRY_PARAM, "mcp_tools");
         this.mcpHandler = new MCPHandler(synapseConfig, toolsLocalEntryKey);
-        log.info("SSEMessageConsumer initialized with InboundProcessorParams");
+        log.info("MCPInboundHttpListener initialized with InboundProcessorParams");
     }
 
-    public SSEMessageConsumer(Properties properties, String name, SynapseEnvironment synapseEnvironment,
-                              long scanInterval, String fileName, String aspect, boolean sequential, boolean coordination) {
+    public MCPInboundHttpListener(Properties properties, String name, SynapseEnvironment synapseEnvironment,
+                                   long scanInterval, String fileName, String aspect, boolean sequential, boolean coordination) {
         super(new InboundProcessorParams());
-        this.name = name;
         this.synapseConfig = synapseEnvironment != null ? synapseEnvironment.getSynapseConfiguration() : null;
         this.toolsLocalEntryKey = properties.getProperty(MCP_TOOLS_LOCALENTRY_PARAM, "mcp_tools");
         this.mcpHandler = new MCPHandler(synapseConfig, toolsLocalEntryKey);
-        log.info("SSEMessageConsumer initialized with 8 parameters - Name: " + name);
+        log.info("MCPInboundHttpListener initialized with 8 parameters - Name: " + name);
     }
 
     @Override
     public void init() {
-        log.info("Initializing SSEMessageConsumer endpoint: " + name);
+        log.info("Initializing MCPInboundHttpListener endpoint");
         try {
+            super.init();
             if (mcpHandler == null) {
                 mcpHandler = new MCPHandler(synapseConfig, toolsLocalEntryKey);
             }
             listening.set(true);
-            log.info("SSEMessageConsumer endpoint initialized successfully");
+            log.info("MCPInboundHttpListener endpoint initialized successfully");
         } catch (Exception e) {
-            log.error("Failed to initialize SSEMessageConsumer", e);
+            log.error("Failed to initialize MCPInboundHttpListener", e);
             listening.set(false);
             throw new RuntimeException("Initialization failed", e);
         }
     }
 
-    @Override
-    public void destroy() {
-        log.info("Destroying SSEMessageConsumer endpoint: " + name);
-        try {
-            listening.set(false);
-            mcpHandler = null;
-            log.info("SSEMessageConsumer endpoint destroyed");
-        } catch (Exception e) {
-            log.error("Error destroying SSEMessageConsumer", e);
-        }
-    }
-
-    @Override
-    public void pause() {
-        log.info("Pausing SSEMessageConsumer endpoint: " + name);
-        listening.set(false);
-    }
-
-    @Override
-    public boolean activate() {
-        log.info("Activating SSEMessageConsumer endpoint: " + name);
-        try {
-            if (!listening.get()) {
-                listening.set(true);
-            }
-            return true;
-        } catch (Exception e) {
-            log.error("Failed to activate SSEMessageConsumer", e);
-            return false;
-        }
-    }
-
-    @Override
-    public boolean deactivate() {
-        log.info("Deactivating SSEMessageConsumer endpoint: " + name);
-        try {
-            listening.set(false);
-            return true;
-        } catch (Exception e) {
-            log.error("Error deactivating SSEMessageConsumer", e);
-            return false;
-        }
-    }
-
-    @Override
-    public boolean isDeactivated() {
-        return !listening.get();
-    }
-
-    public boolean isListening() {
-        return listening.get();
-    }
-
-    public MCPHandler getMCPHandler() {
-        return mcpHandler;
-    }
-
-    /**
-     * Called by WSO2 MI framework to handle incoming messages
-     * This is the main entry point for processing HTTP requests to the inbound endpoint
-     */
     public void onMessage(MessageContext msgContext) {
-        log.debug("onMessage: Received HTTP request on MCP endpoint: " + name);
+        log.debug("onMessage: Received HTTP request on MCP endpoint");
 
         try {
             if (!listening.get()) {
@@ -134,7 +73,6 @@ public class SSEMessageConsumer extends GenericInboundListener {
                 return;
             }
 
-            // Extract JSON-RPC request from message
             JSONObject requestJson = extractMCPRequestFromMessage(msgContext);
             if (requestJson == null || requestJson.length() == 0) {
                 log.warn("onMessage: Empty or invalid request body");
@@ -142,7 +80,6 @@ public class SSEMessageConsumer extends GenericInboundListener {
                 return;
             }
 
-            // Extract method and parameters
             String method = requestJson.getString("method");
             JSONObject params = requestJson.optJSONObject("params");
             if (params == null) {
@@ -152,19 +89,16 @@ public class SSEMessageConsumer extends GenericInboundListener {
 
             log.info("onMessage: Processing MCP command - Method: " + method + ", Request ID: " + requestId);
 
-            // Handle MCP command
             JSONObject response = handleMCPCommand(method, params);
             if (response == null) {
                 response = new JSONObject();
             }
 
-            // Add JSON-RPC response metadata
             response.put("id", requestId);
             response.put("jsonrpc", "2.0");
 
             log.debug("onMessage: MCP command completed - Response: " + response.toString());
 
-            // Send response back via MI transport
             sendMCPResponse(msgContext, response);
 
         } catch (JSONException e) {
@@ -176,12 +110,8 @@ public class SSEMessageConsumer extends GenericInboundListener {
         }
     }
 
-    /**
-     * Extracts MCP JSON-RPC request from the message context
-     */
     private JSONObject extractMCPRequestFromMessage(MessageContext msgContext) {
         try {
-            // Get the request body from the message envelope
             org.apache.axiom.om.OMNode firstNode = msgContext.getEnvelope().getBody().getFirstOMChild();
             String requestBody = null;
 
@@ -191,7 +121,6 @@ public class SSEMessageConsumer extends GenericInboundListener {
             } else if (firstNode != null) {
                 requestBody = firstNode.toString();
             } else {
-                // Try to get raw request body if no body content
                 InputStream inputStream = (InputStream) msgContext.getProperty("TRANSPORT_IN");
                 if (inputStream != null) {
                     Scanner scanner = new Scanner(inputStream, StandardCharsets.UTF_8.name());
@@ -206,8 +135,7 @@ public class SSEMessageConsumer extends GenericInboundListener {
             }
 
             log.debug("extractMCPRequestFromMessage: Request body - " + requestBody);
-            JSONObject requestJson = new JSONObject(requestBody);
-            return requestJson;
+            return new JSONObject(requestBody);
 
         } catch (Exception e) {
             log.error("extractMCPRequestFromMessage: Error extracting request", e);
@@ -215,9 +143,6 @@ public class SSEMessageConsumer extends GenericInboundListener {
         }
     }
 
-    /**
-     * Handles MCP command execution
-     */
     public JSONObject handleMCPCommand(String method, JSONObject params) {
         JSONObject response = new JSONObject();
 
@@ -253,23 +178,18 @@ public class SSEMessageConsumer extends GenericInboundListener {
         return response;
     }
 
-    /**
-     * Sends JSON-RPC response via MI transport
-     */
     private void sendMCPResponse(MessageContext msgContext, JSONObject responseJson) {
         try {
             OMFactory omFactory = org.apache.axiom.om.OMAbstractFactory.getOMFactory();
             OMElement responseElement = omFactory.createOMElement("MCP_Response", null);
             responseElement.setText(responseJson.toString());
 
-            // Clear existing body and add new response
             org.apache.axiom.om.OMNode node;
             while ((node = msgContext.getEnvelope().getBody().getFirstOMChild()) != null) {
                 node.detach();
             }
             msgContext.getEnvelope().getBody().addChild(responseElement);
 
-            // Set HTTP response headers
             msgContext.setProperty("HTTP_SC", 200);
             msgContext.setProperty("Content-Type", "application/json");
 
@@ -279,9 +199,6 @@ public class SSEMessageConsumer extends GenericInboundListener {
         }
     }
 
-    /**
-     * Sends JSON-RPC error response via MI transport
-     */
     private void sendErrorResponse(MessageContext msgContext, int errorCode, String errorMessage) {
         try {
             JSONObject errorResponse = new JSONObject();
@@ -294,6 +211,51 @@ public class SSEMessageConsumer extends GenericInboundListener {
 
         } catch (Exception e) {
             log.error("sendErrorResponse: Error sending error response", e);
+        }
+    }
+
+    @Override
+    public void destroy() {
+        log.info("Destroying MCPInboundHttpListener endpoint");
+        try {
+            listening.set(false);
+            super.destroy();
+            mcpHandler = null;
+            log.info("MCPInboundHttpListener endpoint destroyed");
+        } catch (Exception e) {
+            log.error("Error destroying MCPInboundHttpListener", e);
+        }
+    }
+
+    @Override
+    public void pause() {
+        log.info("Pausing MCPInboundHttpListener endpoint");
+        listening.set(false);
+    }
+
+    @Override
+    public boolean activate() {
+        log.info("Activating MCPInboundHttpListener endpoint");
+        try {
+            if (!listening.get()) {
+                listening.set(true);
+            }
+            return true;
+        } catch (Exception e) {
+            log.error("Failed to activate MCPInboundHttpListener", e);
+            return false;
+        }
+    }
+
+    @Override
+    public boolean deactivate() {
+        log.info("Deactivating MCPInboundHttpListener endpoint");
+        try {
+            listening.set(false);
+            return true;
+        } catch (Exception e) {
+            log.error("Error deactivating MCPInboundHttpListener", e);
+            return false;
         }
     }
 }

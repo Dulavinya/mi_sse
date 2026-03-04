@@ -1,12 +1,14 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <inboundEndpoint xmlns="http://ws.apache.org/ns/synapse"
-                 name="SSEMCPEndpointHTTP"
-                 class="org.wso2.carbon.inbound.SSE.SSEMessageConsumerHTTP"
-                 protocol="custom"
-                 onError="fault"
+                 name="MCPSSEServerEndpoint"
+                 protocol="http"
+                 sequence="MCPSequence"
                  suspend="false">
     <parameters>
-        <parameter name="inbound.behavior">listening</parameter>
-        <parameter name="mcp.tools.localentry">testMcpEntry</parameter>
+        <parameter name="inbound.http.port">8765</parameter>
+        <parameter name="inbound.http.context.path">/mcp</parameter>
+        <parameter name="inbound.http.method">POST</parameter>
+        <parameter name="dispatch">false</parameter>
+        <parameter name="mcp.tools.localentry">mcpSseEntry</parameter>
     </parameters>
 </inboundEndpoint>

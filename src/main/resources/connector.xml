@@ -18,7 +18,14 @@
 -->
 
 <connector>
-    <component name="mcpSseInbound" package="org.wso2.carbon.inbound.SSE" >
-        <description>MCP Server-Sent Events (SSE) Inbound Endpoint </description>
+    <!-- MCP Protocol Handler for Custom Inbound Endpoint -->
+    <component name="mcp-protocol" package="org.wso2.carbon.inbound.SSE">
+        <description>MCP (Model Context Protocol) Inbound Endpoint Protocol Handler</description>
+        <subComponents>
+            <subComponent>
+                <name>inboundEndpointClass</name>
+                <type>org.wso2.carbon.inbound.SSE.SSEMessageConsumer</type>
+            </subComponent>
+        </subComponents>
     </component>
 </connector>
