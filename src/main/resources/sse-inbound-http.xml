@@ -1,8 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <inboundEndpoint xmlns="http://ws.apache.org/ns/synapse"
                  name="SSEMCPEndpointHTTP"
-                 class="org.wso2.carbon.inbound.SSE.SSEMessageConsumerHTTP"
-                 protocol="custom"
+                 class="org.wso2.carbon.inbound.SSE.SSEMessageConsumer"
                  onError="fault"
                  suspend="false">
     <parameters>

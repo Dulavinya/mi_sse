@@ -135,7 +135,20 @@ public class MCPHandler {
                     }
                     
                     if (toolConfig.containsKey("inputSchema")) {
-                        tool.put("inputSchema", toolConfig.get("inputSchema"));
+                        Object schemaObj = toolConfig.get("inputSchema");
+                        // If inputSchema is a string, parse it as JSON
+                        if (schemaObj instanceof String) {
+                            try {
+                                String schemaStr = (String) schemaObj;
+                                JSONObject parsedSchema = new JSONObject(schemaStr);
+                                tool.put("inputSchema", parsedSchema);
+                            } catch (Exception e) {
+                                log.warn("Failed to parse inputSchema as JSON, keeping as string: " + e.getMessage());
+                                tool.put("inputSchema", schemaObj);
+                            }
+                        } else {
+                            tool.put("inputSchema", schemaObj);
+                        }
                     }
                     
                     tools.put(tool);

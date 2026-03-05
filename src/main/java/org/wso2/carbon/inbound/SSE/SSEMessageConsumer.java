@@ -227,7 +227,7 @@ public class SSEMessageConsumer extends GenericInboundListener {
             
             // Send response
             exchange.getResponseHeaders().set("Content-Type", "application/json");
-            String responseStr = response.toString();
+            String responseStr = response.toString(2);
             exchange.sendResponseHeaders(200, responseStr.getBytes().length);
             exchange.getResponseBody().write(responseStr.getBytes(StandardCharsets.UTF_8));
             exchange.getResponseBody().close();
@@ -237,7 +237,7 @@ public class SSEMessageConsumer extends GenericInboundListener {
             log.error("Invalid JSON in request", e);
             JSONObject error = new JSONObject();
             error.put("error", new JSONObject().put("code", -32700).put("message", "Parse error"));
-            String errorStr = error.toString();
+            String errorStr = error.toString(2);
             exchange.getResponseHeaders().set("Content-Type", "application/json");
             exchange.sendResponseHeaders(400, errorStr.getBytes().length);
             exchange.getResponseBody().write(errorStr.getBytes(StandardCharsets.UTF_8));
@@ -405,7 +405,7 @@ public class SSEMessageConsumer extends GenericInboundListener {
             response.put("id", requestId);
             response.put("jsonrpc", "2.0");
             
-            log.debug("onMessage: MCP command completed - Response: " + response.toString());
+            log.debug("onMessage: MCP command completed - Response: " + response.toString(2));
             
         } catch (JSONException e) {
             log.error("onMessage: JSON parsing error", e);
@@ -535,7 +535,7 @@ public class SSEMessageConsumer extends GenericInboundListener {
             StringBuilder sseEvent = new StringBuilder();
             sseEvent.append("id: ").append(eventId).append("\n");
             sseEvent.append("event: mcp_response\n");
-            sseEvent.append("data: ").append(eventData.toString()).append("\n\n");
+            sseEvent.append("data: ").append(eventData.toString(2)).append("\n\n");
             
             // Get the HTTP transport output info
             Object transportOut = clientMessageContext.getProperty(
